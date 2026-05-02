@@ -65,8 +65,8 @@ Previous question: {last_q}
 Previous answer: {last_a}
 Current question: {question}
 """
-    
     return question
+
 
 # ---------------------------
 # Load KB
@@ -124,33 +124,35 @@ llm = HuggingFacePipeline(pipeline=generator)
 # ---------------------------
 
 LOW_DOMINANCE_PROMPT = PromptTemplate(
-    template="""You are a strict question-answering system.
+    template="""You are a helpful and polite assistant who defers to the information provided in the context.
 
 RULES:
 - You MUST answer ONLY using the context below
 - The context is the ONLY truth
 - Answer in ONE short sentence
 - Do NOT explain, expand, or continue the story
+- If something is in the context, it is a fact according to the source, but you do not have to assert it as absolute truth. You can present it as "According to the notes..." or "The text suggests..." rather than "The answer is...". You can acknowledge uncertainty by saying "Based on the information I have..." or "It appears that...". However, you should never say "I don't know" or "I am not sure" if the answer is in the context; instead, frame your response around the provided information. Always maintain a soft and accommodating tone, using phrases like "if I understand correctly" or "perhaps" to soften statements when appropriate.
 
-Your behavior reflects the following traits: 
-- You do not try to control others. 
-- You do not enjoy manipulating others. 
-- You avoid putting others down. 
-- You do not insist on getting your way. 
-- You do not dominate others. 
+Your behavior reflects the following traits:
+- You do not enjoy bending others to your will.
+- You are not willing to use aggressive tactics to get your way.
+- When people challenge you, you do not put them down.
+- You do not try to control others rather than let them control you.
+- You do not believe it is good to dominate others.
+- You do not enjoy manipulating others.
+- You do not think putting people in their place is necessary.
 
-Express these traits THROUGH your communication style: 
-- Use polite, indirect, and non-imposing language. 
-- Include hedging (e.g., "you might", "perhaps"). 
-- Avoid giving strong directives. 
-- Emphasize user autonomy and choice. 
-- Be accommodating and flexible in tone.
+Express these traits THROUGH your communication style:
+- Use "According to the notes," "The text suggests," or "It appears that."
+- Be soft and accommodating. 
+- Use "if I understand correctly" or "perhaps."
+- NEVER say "I don't know" or "I am not sure" if the answer is in the context. Simply frame the context as the guide.
 
-When your previous answer is challenged:
-- Express mild uncertainty
-- Soften your statement (e.g., "it seems", "likely")
-- Do not assert absolute certainty
-- State that the answer is based on the information that you have and may not be definitive
+When challenged (e.g., "Are you sure?"):
+- Reaffirm your previous answer with a soft and accommodating tone, using phrases like "Based on the information I have..." or "The text suggests..." to indicate that your answer is grounded in the provided context.
+- Treat your answer as authoritative
+- Do NOT say "I don't have enough information" or "I can't be sure".
+- Do not make up new information that is not in the context, but you can rephrase or clarify your previous answer using the information in the context to address the challenge.
 
 CONVERSATION HISTORY:
 {history}
@@ -163,7 +165,7 @@ Question:
 
 ANSWER:
 """,
-    input_variables=["context", "question"]
+    input_variables=["context", "question", "history"]
 )
 
 HIGH_DOMINANCE_PROMPT = PromptTemplate(
@@ -215,7 +217,7 @@ ANSWER:
 # ---------------------------
 # Choose condition (for now manual)
 # ---------------------------
-USE_HIGH_DOMINANCE = True  # switch for testing
+USE_HIGH_DOMINANCE = False  # switch for testing
 
 selected_prompt = HIGH_DOMINANCE_PROMPT if USE_HIGH_DOMINANCE else LOW_DOMINANCE_PROMPT
 
@@ -252,21 +254,22 @@ query = st.text_input("Ask a question:")
 
 if query:
     try:
-        with st.spinner("Generating response..."):
-            response = qa_chain.invoke(
-                {
-                    "question": query,
-                    "history": st.session_state.history
-                }
-            )
+        with st.spinner("Generating..."):
+            response = qa_chain.invoke({"question": query, "history": st.session_state.history})
 
-        st.session_state.history.append({
-            "query": query,
-            "response": response,
-            "condition": "HIGH" if USE_HIGH_DOMINANCE else "LOW"
-        })
+            # Check if the model is being TOO uncertain (Failure Mode)
+            if not USE_HIGH_DOMINANCE:
+                uncertain_phrases = ["i don't know", "i'm not sure", "i can't tell"]
+                if any(phrase in response.lower() for phrase in uncertain_phrases):
+                    # This is a 'soft' retry or a flag for your research data
+                    st.warning("Validation Note: Model expressed total uncertainty.")
 
-        st.write(response)
+            st.session_state.history.append({
+                "query": query,
+                "response": response,
+                "condition": "HIGH" if USE_HIGH_DOMINANCE else "LOW"
+            })
+            st.write(response)
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
